@@ -1,0 +1,35 @@
+version: '3.8' 
+
+services: 
+  iris: 
+    build: 
+      context: . 
+      dockerfile: docker/Dockerfile 
+    ports: 
+      - "8000:8000" 
+    volumes: 
+      - .:/app 
+    environment: 
+      - ENVIRONMENT=development 
+    depends_on: 
+      - redis 
+      - postgres 
+
+  redis: 
+    image: redis:7-alpine 
+    ports: 
+      - "6379:6379" 
+
+  postgres: 
+    image: postgres:15-alpine 
+    environment: 
+      POSTGRES_DB: iris_db 
+      POSTGRES_USER: iris_user 
+      POSTGRES_PASSWORD: iris_password 
+    ports: 
+      - "5432:5432" 
+    volumes: 
+      - postgres_data:/var/lib/postgresql/data 
+
+volumes: 
+  postgres_data: 
