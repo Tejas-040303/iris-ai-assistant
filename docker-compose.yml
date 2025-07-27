@@ -1,35 +1,122 @@
-version: '3.8' 
+version: '3.8'
 
-services: 
-  iris: 
-    build: 
-      context: . 
-      dockerfile: docker/Dockerfile 
-    ports: 
-      - "8000:8000" 
-    volumes: 
-      - .:/app 
-    environment: 
-      - ENVIRONMENT=development 
-    depends_on: 
-      - redis 
-      - postgres 
+services:
+  # IRIS Application
+  iris-app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: production
+    container_name: iris-voice-assistant
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=True
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://iris_user:iris_password@postgres:5432/iris_db
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - iris-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  redis: 
-    image: redis:7-alpine 
-    ports: 
-      - "6379:6379" 
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: iris-postgres
+    environment:
+      POSTGRES_DB: iris_db
+      POSTGRES_USER: iris_user
+      POSTGRES_PASSWORD: iris_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - iris-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iris_user -d iris_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  postgres: 
-    image: postgres:15-alpine 
-    environment: 
-      POSTGRES_DB: iris_db 
-      POSTGRES_USER: iris_user 
-      POSTGRES_PASSWORD: iris_password 
-    ports: 
-      - "5432:5432" 
-    volumes: 
-      - postgres_data:/var/lib/postgresql/data 
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: iris-redis
+    command: redis-server --appendonly yes --requirepass iris_redis_password
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - iris-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
-volumes: 
-  postgres_data: 
+  # ChromaDB Vector Database (for AI memory)
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: iris-chromadb
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8001
+    volumes:
+      - chroma_data:/chroma/chroma
+    ports:
+      - "8001:8001"
+    networks:
+      - iris-network
+    restart: unless-stopped
+
+  # NGINX Reverse Proxy (for production)
+  nginx:
+    image: nginx:alpine
+    container_name: iris-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - iris-app
+    networks:
+      - iris-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+networks:
+  iris-network:
+    driver: bridge
+    name: iris-network

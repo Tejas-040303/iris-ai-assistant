@@ -1,0 +1,58 @@
+# docker-compose.dev.yml
+
+version: "3.8"
+
+services:
+  iris-app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: builder
+    container_name: iris-dev
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=True
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - .:/app
+    command: python main.py
+    restart: "no"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - iris-network
+
+  postgres:
+    image: postgres:15
+    container_name: iris-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: iris_db
+      POSTGRES_USER: iris_user
+      POSTGRES_PASSWORD: iris_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - iris-network
+
+  redis:
+    image: redis:7
+    container_name: iris-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - iris-network
+
+networks:
+  iris-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
